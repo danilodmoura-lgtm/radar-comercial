@@ -276,24 +276,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       </select>
     </div>
     <div class="sb-field sb-open">
-      <label>Empresas novas (até)</label>
-      <select id="f-open">
-        <option value="0">Qualquer</option>
-        <option value="1">Menos de 1 ano</option>
-        <option value="2">Últimos 2 anos</option>
-        <option value="5">Últimos 5 anos</option>
-        <option value="10">Últimos 10 anos</option>
-      </select>
-    </div>
-    <div class="sb-field sb-open">
-      <label>Tempo mín. aberta</label>
-      <select id="f-minage">
-        <option value="0">Qualquer</option>
-        <option value="1">1+ ano</option>
-        <option value="2">2+ anos</option>
-        <option value="3">3+ anos</option>
-        <option value="5">5+ anos</option>
-        <option value="10">10+ anos</option>
+      <label>Tempo de empresa</label>
+      <select id="f-age">
+        <option value="">Qualquer</option>
+        <option value="0-1">Menos de 1 ano</option>
+        <option value="1-3">1 a 3 anos</option>
+        <option value="3-5">3 a 5 anos</option>
+        <option value="5-10">5 a 10 anos</option>
+        <option value="10-999">Mais de 10 anos</option>
       </select>
     </div>
     <button class="btn-search" id="btn-search" onclick="doSearch(true)">🔍 Buscar leads</button>
@@ -314,22 +304,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <span class="search-icon">🔍</span>
     <input type="text" id="q" placeholder="Filtrar resultados por nome ou CNPJ…" oninput="renderResults()">
   </div>
-  <select class="mini-select" id="f-status" onchange="renderResults()">
-    <option value="">Todos os status</option>
-    <option value="reco">🔥 Recomendados (melhor fit)</option>
-    <option value="tpvhigh">💚 Confirmados +300K</option>
-    <option value="tpvlow">🔻 Marcados −300K</option>
-    <option value="mp">🤝 Clientes Mercado Pago</option>
-    <option value="note">Com anotações</option>
-    <option value="active">Ativos (não bloqueados)</option>
-    <option value="blocked">Bloqueados</option>
-  </select>
-  <select class="mini-select" id="f-sort" onchange="renderResults()">
-    <option value="score">⭐ Melhor fit (recomendados)</option>
-    <option value="">Ordem original</option>
-    <option value="cap">Maior capital social</option>
-    <option value="new">Mais recentes</option>
-    <option value="az">Nome (A-Z)</option>
+  <select class="mini-select" id="f-status" onchange="renderResults()" title="Filtrar pelo que vocês marcaram nos leads">
+    <option value="">👁 Todos os leads</option>
+    <option value="reco">⭐ Só recomendados</option>
+    <option value="mp">🤝 Cliente Mercado Pago</option>
+    <option value="tpvhigh">💚 +300K</option>
+    <option value="tpvlow">🔻 −300K</option>
+    <option value="note">✍️ Com anotação</option>
+    <option value="blocked">🚫 Bloqueado</option>
   </select>
   <button class="btn-export" id="new-btn" onclick="loadNew()" title="Recém-abertos (30 dias), alta aderência, 4 cidades">🆕 Novos</button>
   <button class="btn-export" onclick="openIntel()" title="Padrão de TPV aprendido pelos rótulos">🧠 Padrão</button>
@@ -598,8 +580,9 @@ async function doSearch(reset){
   const cnae=document.getElementById('f-seg').value;
   const municipio=document.getElementById('f-city').value;
   const capMin=parseInt(document.getElementById('f-cap').value)||0;
-  const openY=parseInt(document.getElementById('f-open').value)||0;
-  const minAge=parseInt(document.getElementById('f-minage').value)||0;
+  const ageRange=document.getElementById('f-age').value; // "min-max" (anos) ou ""
+  let minAge=0, maxAge=0;
+  if(ageRange){const p=ageRange.split('-');minAge=parseInt(p[0])||0;maxAge=parseInt(p[1])||0;}
   if(reset){state.results=[];state.page=1;state.viewingFolder=null;state.viewingNew=false;state.selected.clear();}
   const body={
     situacao_cadastral:['ATIVA'],
@@ -612,14 +595,14 @@ async function doSearch(reset){
     pagina: state.page, quantidade:20
   };
   if(state.empresas) body.codigo_natureza_juridica=NAT_EMPRESAS;
-  if(openY>0 || minAge>0){
+  if(minAge>0 || (maxAge>0 && maxAge<999)){
     const fmt=dt=>dt.toISOString().slice(0,10);
     let ini='1900-01-01', fim=fmt(new Date());
-    if(openY>0){const d=new Date();d.setFullYear(d.getFullYear()-openY);ini=fmt(d);}   // aberta no máx. há openY anos
-    if(minAge>0){const d=new Date();d.setFullYear(d.getFullYear()-minAge);fim=fmt(d);} // aberta há pelo menos minAge anos
+    if(maxAge>0 && maxAge<999){const d=new Date();d.setFullYear(d.getFullYear()-maxAge);ini=fmt(d);}  // aberta no máx. há maxAge anos
+    if(minAge>0){const d=new Date();d.setFullYear(d.getFullYear()-minAge);fim=fmt(d);}                // aberta há pelo menos minAge anos
     body.data_abertura={inicio:ini,fim:fim};
   }
-  state.lastQuery={cnae,municipio,capMin,openY,minAge,bairros:[...state.bairros],empresas:state.empresas};
+  state.lastQuery={cnae,municipio,capMin,ageRange,bairros:[...state.bairros],empresas:state.empresas};
 
   const btn=document.getElementById('btn-search');btn.disabled=true;
   const lm=document.querySelector('.load-more'); if(lm)lm.disabled=true;
@@ -703,7 +686,6 @@ function foldedSet(){const s=new Set();(state.folders||[]).forEach(f=>{if(f.dele
 function getVisible(){
   const q=document.getElementById('q').value.toLowerCase().trim();
   const status=document.getElementById('f-status').value;
-  const sort=document.getElementById('f-sort').value;
   const hideFolded = !state.viewingFolder && !state.viewingNew;
   const folded = hideFolded ? foldedSet() : null;
   let arr=state.results.filter(l=>{
@@ -719,10 +701,7 @@ function getVisible(){
     if(status==='blocked' && !blk) return false;
     return true;
   });
-  if(sort==='score'||status==='reco') arr=[...arr].sort((a,b)=>scoreLead(b).score-scoreLead(a).score);
-  else if(sort==='cap') arr=[...arr].sort((a,b)=>((b.detail&&b.detail.capital)||0)-((a.detail&&a.detail.capital)||0));
-  else if(sort==='new') arr=[...arr].sort((a,b)=>new Date((b.detail&&b.detail.abertura)||0)-new Date((a.detail&&a.detail.abertura)||0));
-  else if(sort==='az') arr=[...arr].sort((a,b)=>a.nome.localeCompare(b.nome));
+  arr=[...arr].sort((a,b)=>scoreLead(b).score-scoreLead(a).score); // sempre por melhor fit
   return arr;
 }
 
