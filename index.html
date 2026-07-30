@@ -143,6 +143,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .lead-labels{display:flex;gap:5px;margin-top:7px}
 .lbl-btn{flex:1;border:1px solid var(--border);background:#fff;border-radius:7px;padding:6px 4px;font-size:10.5px;font-weight:700;cursor:pointer;color:var(--text2);transition:.15s;display:flex;align-items:center;justify-content:center;gap:3px}
 .lbl-btn:hover{border-color:var(--mp-blue)}
+.lbl-ct-on{background:#dcfce7 !important;border-color:#16a34a !important;color:#166534 !important}
+.badge-pot{background:#fef9c3;color:#854d0e}
+.badge-ct{background:#dcfce7;color:#166534}
 .lbl-mp-on{background:linear-gradient(135deg,#00bcff,#009ee3);color:#fff;border-color:transparent}
 .lbl-hi-on{background:#16a34a;color:#fff;border-color:transparent}
 .lbl-lo-on{background:#64748b;color:#fff;border-color:transparent}
@@ -328,6 +331,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <option value="tpvlow">🔻 −300K</option>
     <option value="note">✍️ Com anotação</option>
     <option value="blocked">🚫 Bloqueado</option>
+    <option value="contatado">✅ Já contatado</option>
   </select>
   <button class="btn-export" id="new-btn" onclick="loadNew()" title="Recém-abertos (30 dias), alta aderência, 4 cidades">🆕 Novos</button>
   <button class="btn-export" onclick="openIntel()" title="Padrão de TPV aprendido pelos rótulos">🧠 Padrão</button>
@@ -479,9 +483,13 @@ let state={
   pins: LS('mp2_pins')||{},
   requests: LS('mp2_requests')||[],
   identity: localStorage.getItem('mp2_identity')||null,
+  contacted: LS('mp2_contacted')||{},
+  activity: LS('mp2_activity')||[],
+  viewingLabel: null,
   map:null, markers:[], mapInit:false,
 };
 function isBlk(c){return !!state.blocked[c]}
+function logAct(t,c){ if(!state.activity)state.activity=[]; state.activity.push({t,c,at:Date.now()}); if(state.activity.length>800)state.activity=state.activity.slice(-800); }
 function captureSnap(l){if(!l)return;const d=(l.detail&&!l.detail.error)?l.detail:{};state.labelSnap[l.cnpj]={seg:(CNAES[l.cnae]||{}).seg||'',cnae:l.cnae,capital:d.capital||0,porte:d.porte||'',abertura:d.abertura||'',nome:l.nome};}
 // Salva o que é compartilhado (cx/notas/bloqueios/clientes MP) + empurra pra nuvem
 function saveSharedLocal(){
@@ -493,10 +501,13 @@ function saveSharedLocal(){
   localStorage.setItem('mp2_folders',JSON.stringify(state.folders));
   localStorage.setItem('mp2_pins',JSON.stringify(state.pins||{}));
   localStorage.setItem('mp2_requests',JSON.stringify(state.requests||[]));
+  localStorage.setItem('mp2_contacted',JSON.stringify(state.contacted||{}));
+  localStorage.setItem('mp2_activity',JSON.stringify(state.activity||[]));
 }
 function persist(){ saveSharedLocal(); pushShared(); }
 function mergeFolders(a,b){const m={};for(const f of (a||[]))m[f.id]=f;for(const f of (b||[])){const ex=m[f.id];if(!ex||(f._updated||0)>=(ex._updated||0))m[f.id]=f;}return Object.values(m);}
 function mergeReqs(a,b){const m={};for(const r of (a||[]))m[r.id]=r;for(const r of (b||[])){const ex=m[r.id];if(!ex||(r._updated||0)>=(ex._updated||0))m[r.id]=r;}return Object.values(m);}
+function mergeActivity(a,b){const m={};for(const e of [...(a||[]),...(b||[])]){const k=(e.at||0)+'|'+(e.c||'')+'|'+(e.t||'');m[k]=e;}return Object.values(m).sort((x,y)=>(x.at||0)-(y.at||0)).slice(-800);}
 // Salva só cache local (detalhes/geo) — não sincroniza
 function persistCache(){
   localStorage.setItem('mp2_details',JSON.stringify(state.detailCache));
@@ -506,7 +517,7 @@ function persistCache(){
 let _pushT=null,_pushing=false;
 function setSync(s){const el=document.getElementById('sync-ind');if(!el)return;el.textContent=s==='ok'?'☁ sincronizado':s==='sync'?'☁ salvando…':'☁ offline';el.style.opacity=s==='off'?.55:1;}
 function mergeNotes(a,b){const out={};const keys=new Set([...Object.keys(a||{}),...Object.keys(b||{})]);for(const k of keys){const seen=new Set();const arr=[];for(const n of [...((a&&a[k])||[]),...((b&&b[k])||[])]){const sig=(n.date||'')+'|'+(n.text||'');if(seen.has(sig))continue;seen.add(sig);arr.push(n);}out[k]=arr;}return out;}
-function sharedSig(o){return JSON.stringify({mpClient:o.mpClient||{},blocked:Array.isArray(o.blocked)?{}:(o.blocked||{}),tpv:o.tpv||{},labelSnap:o.labelSnap||{},notes:o.notes||{},folders:o.folders||[],pins:o.pins||{},requests:o.requests||[]});}
+function sharedSig(o){return JSON.stringify({mpClient:o.mpClient||{},blocked:Array.isArray(o.blocked)?{}:(o.blocked||{}),tpv:o.tpv||{},labelSnap:o.labelSnap||{},notes:o.notes||{},folders:o.folders||[],pins:o.pins||{},requests:o.requests||[],contacted:o.contacted||{},activity:o.activity||[]});}
 // Lê a nuvem, funde com o local (união c/ tombstones) e só regrava se algo mudou.
 // Cada cliente reassere o próprio estado a cada ciclo → corridas de escrita se auto-curam.
 async function reconcile(){
@@ -526,9 +537,11 @@ async function reconcile(){
       folders:mergeFolders(remote.folders||[],state.folders),
       pins:Object.assign({},remote.pins||{},state.pins||{}),
       requests:mergeReqs(remote.requests||[],state.requests||[]),
+      contacted:Object.assign({},remote.contacted||{},state.contacted||{}),
+      activity:mergeActivity(remote.activity||[],state.activity||[]),
       _updated:Date.now()
     };
-    state.mpClient=merged.mpClient;state.blocked=merged.blocked;state.tpv=merged.tpv;state.labelSnap=merged.labelSnap;state.notes=merged.notes;state.folders=merged.folders;state.pins=merged.pins;state.requests=merged.requests;
+    state.mpClient=merged.mpClient;state.blocked=merged.blocked;state.tpv=merged.tpv;state.labelSnap=merged.labelSnap;state.notes=merged.notes;state.folders=merged.folders;state.pins=merged.pins;state.requests=merged.requests;state.contacted=merged.contacted;state.activity=merged.activity;
     saveSharedLocal();
     renderFolders();
     updateAdminUI();
@@ -721,10 +734,11 @@ function foldedSet(){const s=new Set();(state.folders||[]).forEach(f=>{if(f.dele
 function getVisible(){
   const q=document.getElementById('q').value.toLowerCase().trim();
   const status=document.getElementById('f-status').value;
-  const hideFolded = !state.viewingFolder && !state.viewingNew;
+  const hideFolded = !state.viewingFolder && !state.viewingNew && !state.viewingLabel;
   const folded = hideFolded ? foldedSet() : null;
   let arr=state.results.filter(l=>{
     if(folded && folded.has(l.cnpj)) return false;
+    if(hideFolded && status!=='contatado' && state.contacted && state.contacted[l.cnpj]) return false;
     if(q && !l.nome.toLowerCase().includes(q) && !l.razao.toLowerCase().includes(q) && !l.cnpj.includes(q.replace(/\D/g,''))) return false;
     const blk=isBlk(l.cnpj);
     if(status==='note' && !(state.notes[l.cnpj]||[]).length) return false;
@@ -734,6 +748,7 @@ function getVisible(){
     if(status==='tpvlow' && state.tpv[l.cnpj]!=='low') return false;
     if(status==='active' && blk) return false;
     if(status==='blocked' && !blk) return false;
+    if(status==='contatado' && !(state.contacted&&state.contacted[l.cnpj])) return false;
     return true;
   });
   arr=[...arr].sort((a,b)=>scoreLead(b).score-scoreLead(a).score); // sempre por melhor fit
@@ -755,7 +770,7 @@ function renderResults(){
   const th=state.results.filter(l=>state.tpv[l.cnpj]==='high').length;
   const tl=state.results.filter(l=>state.tpv[l.cnpj]==='low').length;
   const sg=segOf(state.results[0]||{});
-  const foldedN=(!state.viewingFolder&&!state.viewingNew)?(()=>{const fs=foldedSet();return state.results.filter(l=>fs.has(l.cnpj)).length;})():0;
+  const foldedN=(!state.viewingFolder&&!state.viewingNew&&!state.viewingLabel)?(()=>{const fs=foldedSet();return state.results.filter(l=>fs.has(l.cnpj)).length;})():0;
   stats.style.display='flex';
   stats.innerHTML=`<span class="stat-total">📊 ${arr.length} de ${state.total} leads</span>`+
     (foldedN?`<span class="stat-item" title="Já organizados em pastas — ocultados da busca para não repetir">🗂 <span class="stat-count">${foldedN}</span> já em pastas</span>`:'')+
@@ -770,7 +785,7 @@ function renderResults(){
   lw.innerHTML = (state.hasMore && !state.viewingFolder) ? `<button class="load-more" onclick="doSearch(false)">Carregar mais (${state.total-state.results.length} restantes)</button>` : '';
   // banner de pasta
   const fb=document.getElementById('fold-banner');
-  if(fb){ if(state.viewingFolder){const f=state.folders.find(x=>x.id===state.viewingFolder)||{};fb.className='fold-banner on';fb.innerHTML=`📁 <b>Pasta</b> · ${state.results.length} leads &nbsp; <button onclick="exportFolder('${state.viewingFolder}')">⬇ Exportar (CRM)</button> <button onclick="exitFolder()">← Voltar à busca</button>`;} else if(state.viewingNew){fb.className='fold-banner on';fb.innerHTML=`🆕 <b>Novos leads</b> — recém-abertos (30 dias), alta aderência × 4 cidades · ${state.results.length} &nbsp; <button onclick="exportCSV('crm')">⬇ CRM</button> <button onclick="exitFolder()">← Voltar à busca</button>`;} else {fb.className='fold-banner';fb.innerHTML='';} }
+  if(fb){ if(state.viewingFolder){const f=state.folders.find(x=>x.id===state.viewingFolder)||{};fb.className='fold-banner on';fb.innerHTML=`📁 <b>Pasta</b> · ${state.results.length} leads &nbsp; <button onclick="exportFolder('${state.viewingFolder}')">⬇ Exportar (CRM)</button> <button onclick="exitFolder()">← Voltar à busca</button>`;} else if(state.viewingNew){fb.className='fold-banner on';fb.innerHTML=`🆕 <b>Novos leads</b> — recém-abertos (30 dias), alta aderência × 4 cidades · ${state.results.length} &nbsp; <button onclick="exportCSV('crm')">⬇ CRM</button> <button onclick="exitFolder()">← Voltar à busca</button>`;} else if(state.viewingLabel){const m=(typeof LABEL_META!=='undefined'&&LABEL_META[state.viewingLabel])||{t:'Marcados'};fb.className='fold-banner on';fb.innerHTML=`${m.t} · ${state.results.length} leads &nbsp; <button onclick="exportCSV('crm')">⬇ CRM</button> <button onclick="exitFolder()">← Voltar à busca</button>`;} else {fb.className='fold-banner';fb.innerHTML='';} }
   renderSelBar();
   if(state.view==='map') renderMap();
 }
@@ -793,6 +808,8 @@ function cardHTML(l){
   const sc=scoreLead(l);
   const isMP=!!state.mpClient[l.cnpj];
   const tv=state.tpv[l.cnpj];
+  const ct=!!state.contacted[l.cnpj];
+  const potential = !!(d&&!d.error&&(((d.capital||0)>=200000)||/PEQUENO|MÉDI|MEDI|DEMAIS|GRANDE/.test((d.porte||'').toUpperCase())));
   const scoreBadge = sc.tier>=3?`<span class="badge badge-hot" title="Alta aderência · score ${sc.score}">🔥 ${sc.score}</span>` : sc.tier>=2?`<span class="badge badge-star" title="Boa aderência · score ${sc.score}">⭐ ${sc.score}</span>` : '';
   return `<div class="lead-card ${blk?'blocked':''} ${sc.tier>=3?'hot':''} ${isMP?'ismp':''} ${state.selected.has(l.cnpj)?'sel':''}" style="--seg:${s.color}" onclick="openLead('${l.cnpj}')" id="card-${l.cnpj}">
     <div class="lead-top">
@@ -803,6 +820,8 @@ function cardHTML(l){
         <span class="badge badge-seg">${s.seg}</span>
         ${isMP?'<span class="badge badge-mp">MP cliente</span>':''}
         ${tv==='high'?'<span class="badge badge-hi">+300K</span>':tv==='low'?'<span class="badge badge-lo">−300K</span>':''}
+        ${potential?'<span class="badge badge-pot" title="Alto potencial de faturamento/TPV">💰 potencial</span>':''}
+        ${ct?'<span class="badge badge-ct">✅ contatado</span>':''}
         ${nt?'<span class="badge badge-note">📝'+nt+'</span>':''}
         ${blk?'<span class="badge badge-blk">BLOQ</span>':''}
       </div>
@@ -818,6 +837,7 @@ function cardHTML(l){
       <button class="lbl-btn ${tv==='high'?'lbl-hi-on':''}" onclick="setTpv('${l.cnpj}','high')" title="Confirmado: TPV acima de R$300 mil">＋300K</button>
       <button class="lbl-btn ${tv==='low'?'lbl-lo-on':''}" onclick="setTpv('${l.cnpj}','low')" title="Confirmado: TPV abaixo de R$300 mil">－300K</button>
       ${blk?`<button class="lbl-btn lbl-blk-on" onclick="unblock('${l.cnpj}')" title="Reativar (está bloqueado)">🚫</button>`:`<button class="lbl-btn" onclick="block('${l.cnpj}')" title="Bloquear — não faz sentido estar aqui">🚫</button>`}
+      <button class="lbl-btn ${ct?'lbl-ct-on':''}" onclick="toggleContacted('${l.cnpj}')" title="Já contatado — sai da busca pra não repetir">✅</button>
     </div>
   </div>`;
 }
@@ -905,12 +925,13 @@ function closePanel(){document.getElementById('overlay').classList.remove('open'
 //  ACTIONS
 // ============================================================
 function snapOf(c){const l=state.results.find(x=>x.cnpj===c);if(l)captureSnap(l);}
-function block(c){state.blocked[c]=true;snapOf(c);persist();renderResults();if(state.openCnpj===c)closePanel();toast('Lead bloqueado (não faz sentido)')}
+function block(c){state.blocked[c]=true;snapOf(c);logAct('blocked',c);persist();renderResults();if(state.openCnpj===c)closePanel();toast('Lead bloqueado (não faz sentido)')}
 function unblock(c){state.blocked[c]=false;persist();renderResults();if(state.openCnpj===c)openLead(c);toast('Lead reativado')}
 function addNote(c){const inp=document.getElementById('note-in');const t=inp.value.trim();if(!t)return;(state.notes[c]=state.notes[c]||[]).unshift({text:t,date:new Date().toLocaleString('pt-BR')});inp.value='';persist();openLead(c);renderResults()}
 function delNote(c,i){state.notes[c].splice(i,1);persist();openLead(c);renderResults()}
-function toggleMP(c){state.mpClient[c]=!state.mpClient[c];const now=!!state.mpClient[c];snapOf(c);persist();if(state.openCnpj===c)openLead(c);renderResults();toast(now?'✓ Marcado como cliente Mercado Pago':'Desmarcado como cliente MP')}
-function setTpv(c,val){state.tpv[c]=(state.tpv[c]===val)?'':val;const now=state.tpv[c];snapOf(c);persist();if(state.openCnpj===c)openLead(c);renderResults();toast(now==='high'?'✅ Marcado: TPV +300K':now==='low'?'▽ Marcado: TPV −300K':'Rótulo de TPV removido')}
+function toggleMP(c){state.mpClient[c]=!state.mpClient[c];const now=!!state.mpClient[c];snapOf(c);if(now)logAct('mp',c);persist();if(state.openCnpj===c)openLead(c);renderResults();toast(now?'✓ Marcado como cliente Mercado Pago':'Desmarcado como cliente MP')}
+function setTpv(c,val){state.tpv[c]=(state.tpv[c]===val)?'':val;const now=state.tpv[c];snapOf(c);if(now==='high')logAct('tpvhigh',c);else if(now==='low')logAct('tpvlow',c);persist();if(state.openCnpj===c)openLead(c);renderResults();toast(now==='high'?'✅ Marcado: TPV +300K':now==='low'?'▽ Marcado: TPV −300K':'Rótulo de TPV removido')}
+function toggleContacted(c){state.contacted[c]=!state.contacted[c];const now=!!state.contacted[c];snapOf(c);if(now)logAct('contatado',c);persist();if(state.openCnpj===c)openLead(c);renderResults();toast(now?'✅ Contatado — sai da busca pra não repetir':'Contato desmarcado')}
 function quickFilter(v){const el=document.getElementById('f-status');if(el){el.value=v;renderResults()}}
 // ---- Novos leads (recém-abertos, alta aderência × 4 cidades) ----
 const NEW_CITIES=['GOIANIA','APARECIDA DE GOIANIA','TRINDADE','SENADOR CANEDO','RIO VERDE','ANAPOLIS'];
@@ -963,12 +984,21 @@ function openIntel(){
     </div>`;
   let learned='Marque alguns leads como +300K e −300K para eu começar a enxergar o padrão.';
   if(H.n>=3){learned=`Pelo que a equipe marcou, o perfil <b>+300K</b> tende a ter capital em torno de <b>${money(H.capMed)}</b>${H.eppPct>=50?' e maioria porte EPP':''}${H.top[0]?', puxado por <b>'+H.top[0][0]+'</b>':''}. Estou usando isso pra pontuar melhor os próximos.`;}
+  const today=new Date().toDateString();
+  const todays=(state.activity||[]).filter(e=>new Date(e.at).toDateString()===today);
+  const cnt=t=>todays.filter(e=>e.t===t).length;
+  const cts=Object.keys(state.contacted||{}).filter(c=>state.contacted[c]).length;
   const body=`
+    <div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:12px;margin-bottom:14px">
+      <div class="ilabel">📅 Resumo de hoje — inputs do time</div>
+      <div style="font-size:13px;margin-top:8px;line-height:1.9">💚 +300K: <b>${cnt('tpvhigh')}</b> &nbsp;·&nbsp; 🔻 −300K: <b>${cnt('tpvlow')}</b> &nbsp;·&nbsp; ✅ Contatados: <b>${cnt('contatado')}</b> &nbsp;·&nbsp; 🤝 Clientes MP: <b>${cnt('mp')}</b> &nbsp;·&nbsp; 🚫 Bloqueados: <b>${cnt('blocked')}</b> &nbsp;·&nbsp; 📁 Pastas: <b>${cnt('folder')}</b></div>
+    </div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px">
-      <div class="intel-kpi" style="background:#dcfce7"><b>${highs.length}</b><span>+300K</span></div>
-      <div class="intel-kpi" style="background:#fee2e2"><b>${lows.length}</b><span>−300K</span></div>
-      <div class="intel-kpi" style="background:#e0f2fe"><b>${mps.length}</b><span>Clientes MP</span></div>
-      <div class="intel-kpi" style="background:#f1f5f9"><b>${blks.length}</b><span>Bloqueados</span></div>
+      <div class="intel-kpi" style="background:#dcfce7;cursor:pointer" onclick="openLabelView('tpvhigh')" title="Ver esses leads"><b>${highs.length}</b><span>+300K ›</span></div>
+      <div class="intel-kpi" style="background:#fee2e2;cursor:pointer" onclick="openLabelView('tpvlow')" title="Ver esses leads"><b>${lows.length}</b><span>−300K ›</span></div>
+      <div class="intel-kpi" style="background:#e0f2fe;cursor:pointer" onclick="openLabelView('mp')" title="Ver esses leads"><b>${mps.length}</b><span>Clientes MP ›</span></div>
+      <div class="intel-kpi" style="background:#f1f5f9;cursor:pointer" onclick="openLabelView('blocked')" title="Ver esses leads"><b>${blks.length}</b><span>Bloqueados ›</span></div>
+      <div class="intel-kpi" style="background:#dcfce7;cursor:pointer" onclick="openLabelView('contatado')" title="Ver esses leads"><b>${cts}</b><span>Contatados ›</span></div>
     </div>
     <div class="ilabel">💚 Perfil dos +300K &nbsp; vs &nbsp; 🔻 −300K</div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin:8px 0 14px">${profile(H,'#f0fdf4')}${profile(L,'#fef2f2')}</div>
@@ -1026,6 +1056,7 @@ function confirmCreateFolder(){
   const faixa=document.getElementById('cf-faixa').value;
   const leads=[...state.selected].map(c=>state.results.find(l=>l.cnpj===c)).filter(Boolean).map(leadSnapshot);
   state.folders.push({id:'f'+Date.now()+Math.random().toString(36).slice(2,6),name,exec,faixa,created:new Date().toLocaleString('pt-BR'),_updated:Date.now(),leads});
+  logAct('folder','');
   persist();state.selected.clear();closeCreateFolder();renderResults();renderFolders();toast('Pasta "'+name+'" → '+exec+' ('+leads.length+' leads)');
 }
 function openFolder(id){
@@ -1037,7 +1068,28 @@ function openFolder(id){
   fetchDetailsFor(state.results.filter(l=>!l.detail));
   toggleFoldersMenu(false);
 }
-function exitFolder(){state.viewingFolder=null;state.viewingNew=false;state.results=[];state.total=0;state.selected.clear();renderResults();document.getElementById('empty').style.display='block';document.getElementById('stats').style.display='none';}
+const LABEL_META={tpvhigh:{t:'💚 Leads +300K'},tpvlow:{t:'🔻 Leads −300K'},mp:{t:'🤝 Clientes Mercado Pago'},blocked:{t:'🚫 Leads bloqueados'},contatado:{t:'✅ Já contatados'}};
+function labelCnpjs(kind){
+  if(kind==='tpvhigh')return Object.keys(state.tpv).filter(c=>state.tpv[c]==='high');
+  if(kind==='tpvlow')return Object.keys(state.tpv).filter(c=>state.tpv[c]==='low');
+  if(kind==='mp')return Object.keys(state.mpClient).filter(c=>state.mpClient[c]);
+  if(kind==='blocked')return Object.keys(state.blocked).filter(c=>state.blocked[c]);
+  if(kind==='contatado')return Object.keys(state.contacted||{}).filter(c=>state.contacted[c]);
+  return [];
+}
+function openLabelView(kind){
+  const cnpjs=labelCnpjs(kind);
+  state.results=cnpjs.map(c=>{const sn=state.labelSnap[c]||{};return {cnpj:c,nome:sn.nome||fmtCnpj(c),razao:sn.nome||'',cnae:sn.cnae||'',detail:state.detailCache[c]||null,loading:false};});
+  state.total=state.results.length;state.hasMore=false;state.viewingFolder=null;state.viewingNew=false;state.viewingLabel=kind;state.selected.clear();
+  closeIntel();
+  const el=document.getElementById('f-status');if(el)el.value='';
+  document.getElementById('empty').style.display='none';
+  renderResults();
+  fetchDetailsFor(state.results.filter(l=>!l.detail));
+  window.scrollTo({top:0,behavior:'smooth'});
+  if(!cnpjs.length)toast('Nenhum lead com esse rótulo ainda.');
+}
+function exitFolder(){state.viewingFolder=null;state.viewingNew=false;state.viewingLabel=null;state.results=[];state.total=0;state.selected.clear();renderResults();document.getElementById('empty').style.display='block';document.getElementById('stats').style.display='none';}
 function deleteFolder(id){ const f=state.folders.find(x=>x.id===id); if(!f)return; askDeletePwd(id); }
 function toggleFoldersMenu(force){const m=document.getElementById('folders-menu');if(!m)return;const show=force===undefined?!m.classList.contains('on'):force;m.classList.toggle('on',show);if(show)renderFolders();}
 function setFolderExec(e){state.folderExecFilter=e;renderFolders();}
