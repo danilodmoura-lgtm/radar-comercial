@@ -259,6 +259,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         <option value="APARECIDA DE GOIANIA">Aparecida de Goiânia</option>
         <option value="TRINDADE">Trindade</option>
         <option value="SENADOR CANEDO">Senador Canedo</option>
+        <option value="RIO VERDE">Rio Verde</option>
       </select>
     </div>
     <div class="sb-field sb-cap">
@@ -896,7 +897,7 @@ function toggleMP(c){state.mpClient[c]=!state.mpClient[c];const now=!!state.mpCl
 function setTpv(c,val){state.tpv[c]=(state.tpv[c]===val)?'':val;const now=state.tpv[c];snapOf(c);persist();if(state.openCnpj===c)openLead(c);renderResults();toast(now==='high'?'✅ Marcado: TPV +300K':now==='low'?'▽ Marcado: TPV −300K':'Rótulo de TPV removido')}
 function quickFilter(v){const el=document.getElementById('f-status');if(el){el.value=v;renderResults()}}
 // ---- Novos leads (recém-abertos, alta aderência × 4 cidades) ----
-const NEW_CITIES=['GOIANIA','APARECIDA DE GOIANIA','TRINDADE','SENADOR CANEDO'];
+const NEW_CITIES=['GOIANIA','APARECIDA DE GOIANIA','TRINDADE','SENADOR CANEDO','RIO VERDE'];
 async function loadNew(){
   const btn=document.getElementById('new-btn'); if(btn)btn.disabled=true;
   loader(true); state.viewingNew=true; state.viewingFolder=null; state.selected.clear();
