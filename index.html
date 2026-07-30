@@ -395,7 +395,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <label class="cf-lbl">Nome da pasta</label>
     <input id="cf-name" class="cf-inp" placeholder="Ex: Joalherias Marista — visitar" onkeydown="if(event.key==='Enter')confirmCreateFolder()">
     <label class="cf-lbl">Executivo responsável</label>
-    <select id="cf-exec" class="cf-inp"><option>Anna Carla</option><option>Danillo Moura</option><option>Emerson Vitor</option><option>Lucas Filipe</option></select>
+    <select id="cf-exec" class="cf-inp"><option>Anna Carla</option><option>Danillo Emanuel</option><option>Emerson Vitor</option><option>Lucas Filipe</option></select>
     <label class="cf-lbl">Funil / faixa de faturamento (opcional)</label>
     <select id="cf-faixa" class="cf-inp"><option value="">— sem faixa —</option><option>R$ 300 mil – 1 milhão</option><option>R$ 1 milhão +</option></select>
     <button class="cf-create" onclick="confirmCreateFolder()">Criar pasta</button>
@@ -452,7 +452,7 @@ const NAT_EMPRESAS=['2062','2054','2046','2305','2240','2232','2135'];
 // Excluir: Premier Veículos GO já é cliente
 const EXCLUDE_TERMS=['PREMIER VEIC','PREMIER MOTORS','PREMIER AUTO'];
 // Executivos (para atribuir pastas) e faixas de faturamento (funis)
-const EXECS=['Anna Carla','Danillo Moura','Emerson Vitor','Lucas Filipe'];
+const EXECS=['Anna Carla','Danillo Emanuel','Emerson Vitor','Lucas Filipe'];
 const FAIXAS=['R$ 300 mil – 1 milhão','R$ 1 milhão +'];
 // Nuvem compartilhada do time (notas, bloqueios, clientes MP, TPV, pastas)
 const SHARED={url:'/api/state'}; // armazém compartilhado via Vercel Function + KV (Upstash Redis)
@@ -1160,7 +1160,7 @@ function exportCSV(type,arrIn,fname,vendedor){
 // ============================================================
 //  IDENTIDADE (PIN por usuário) + APROVAÇÕES DE EXCLUSÃO
 // ============================================================
-const ADMIN='Danillo Moura';
+const ADMIN='Danillo Emanuel';
 const ADMIN_SEED_PIN='BR07'; // PIN inicial do admin (Danilo)
 function isAdmin(){return state.identity===ADMIN;}
 async function sha(s){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');}
