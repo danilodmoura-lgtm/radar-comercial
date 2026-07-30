@@ -425,7 +425,7 @@ const EXCLUDE_TERMS=['PREMIER VEIC','PREMIER MOTORS','PREMIER AUTO'];
 const EXECS=['Anna Carla','Danillo Moura'];
 const FAIXAS=['R$ 300 mil – 1 milhão','R$ 1 milhão +'];
 // Nuvem compartilhada do time (notas, bloqueios, clientes MP, TPV, pastas)
-const SHARED={base:'https://jsonblob.com/api/jsonBlob/', blob:'019fafc4-a4e3-7a9f-ab92-68b74d4b3e6d'};
+const SHARED={url:'/api/state'}; // armazém compartilhado via Vercel Function + KV (Upstash Redis)
 // Aderência à maquininha presencial (alto parcelamento/antecipação) por CNAE: 3=alta, 2=média, 1=baixa
 const SEG_FIT={
   '4530705':2,'4530703':2,'4520001':2,'4511101':3,'4512901':3,'4541206':3,
@@ -473,7 +473,7 @@ function persistCache(){
   localStorage.setItem('mp2_details',JSON.stringify(state.detailCache));
   localStorage.setItem('mp2_geo',JSON.stringify(state.geoCache));
 }
-// ---- Sincronização em nuvem (jsonblob) — reconciliação self-healing p/ vários usuários ----
+// ---- Sincronização em nuvem (Vercel KV via /api/state) — reconciliação self-healing p/ vários usuários ----
 let _pushT=null,_pushing=false;
 function setSync(s){const el=document.getElementById('sync-ind');if(!el)return;el.textContent=s==='ok'?'☁ sincronizado':s==='sync'?'☁ salvando…':'☁ offline';el.style.opacity=s==='off'?.55:1;}
 function mergeNotes(a,b){const out={};const keys=new Set([...Object.keys(a||{}),...Object.keys(b||{})]);for(const k of keys){const seen=new Set();const arr=[];for(const n of [...((a&&a[k])||[]),...((b&&b[k])||[])]){const sig=(n.date||'')+'|'+(n.text||'');if(seen.has(sig))continue;seen.add(sig);arr.push(n);}out[k]=arr;}return out;}
@@ -485,7 +485,7 @@ async function reconcile(){
   _pushing=true;setSync('sync');
   try{
     let remote={},gotRemote=false;
-    try{const r=await fetch(SHARED.base+SHARED.blob,{cache:'no-store',headers:{'Accept':'application/json'}});if(r.ok){remote=await r.json();gotRemote=true;}}catch(e){}
+    try{const r=await fetch(SHARED.url,{cache:'no-store',headers:{'Accept':'application/json'}});if(r.ok){const j=await r.json();if(j&&!j.error){remote=j;gotRemote=true;}}}catch(e){}
     if(!gotRemote){setSync('off');_pushing=false;return;} // nunca grava sem ter lido a nuvem (evita sobrescrever o time)
     const rb=Array.isArray(remote.blocked)?{}:(remote.blocked||{});
     const merged={
@@ -503,7 +503,7 @@ async function reconcile(){
     if(state.results.length)renderResults();
     if(state.openCnpj)openLead(state.openCnpj);
     if(sharedSig(merged)!==sharedSig(remote)){
-      const w=await fetch(SHARED.base+SHARED.blob,{method:'PUT',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(merged)});
+      const w=await fetch(SHARED.url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(merged)});
       setSync(w.ok?'ok':'off');
     }else{setSync('ok');}
   }catch(e){setSync('off');}
@@ -1106,7 +1106,8 @@ function exportCSV(type,arrIn,fname,vendedor){
 // ============================================================
 renderFolders();
 loadShared();
-setInterval(()=>{ if(!_pushing) reconcile(); }, 15000);
+setInterval(()=>{ if(!_pushing && document.visibilityState==='visible') reconcile(); }, 20000);
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && !_pushing) reconcile(); });
 </script>
 </body>
 </html>
