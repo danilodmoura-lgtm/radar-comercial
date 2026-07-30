@@ -392,7 +392,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <label class="cf-lbl">Nome da pasta</label>
     <input id="cf-name" class="cf-inp" placeholder="Ex: Joalherias Marista — visitar" onkeydown="if(event.key==='Enter')confirmCreateFolder()">
     <label class="cf-lbl">Executivo responsável</label>
-    <select id="cf-exec" class="cf-inp"><option>Anna Carla</option><option>Danillo Moura</option></select>
+    <select id="cf-exec" class="cf-inp"><option>Anna Carla</option><option>Danillo Moura</option><option>Emerson Vitor</option><option>Lucas Filipe</option></select>
     <label class="cf-lbl">Funil / faixa de faturamento (opcional)</label>
     <select id="cf-faixa" class="cf-inp"><option value="">— sem faixa —</option><option>R$ 300 mil – 1 milhão</option><option>R$ 1 milhão +</option></select>
     <button class="cf-create" onclick="confirmCreateFolder()">Criar pasta</button>
@@ -436,7 +436,7 @@ const NAT_EMPRESAS=['2062','2054','2046','2305','2240','2232','2135'];
 // Excluir: Premier Veículos GO já é cliente
 const EXCLUDE_TERMS=['PREMIER VEIC','PREMIER MOTORS','PREMIER AUTO'];
 // Executivos (para atribuir pastas) e faixas de faturamento (funis)
-const EXECS=['Anna Carla','Danillo Moura'];
+const EXECS=['Anna Carla','Danillo Moura','Emerson Vitor','Lucas Filipe'];
 const FAIXAS=['R$ 300 mil – 1 milhão','R$ 1 milhão +'];
 // Nuvem compartilhada do time (notas, bloqueios, clientes MP, TPV, pastas)
 const SHARED={url:'/api/state'}; // armazém compartilhado via Vercel Function + KV (Upstash Redis)
@@ -1031,7 +1031,7 @@ function renderFolders(){
   const btn=document.getElementById('folders-btn');if(btn)btn.textContent='📁 Pastas ('+active.length+')';
   const m=document.getElementById('folders-menu');if(!m)return;
   const ef=state.folderExecFilter||'';
-  const head=`<div class="fold-filter"><button class="${!ef?'on':''}" onclick="setFolderExec('')">Todas</button><button class="${ef==='Anna Carla'?'on':''}" onclick="setFolderExec('Anna Carla')">Anna Carla</button><button class="${ef==='Danillo Moura'?'on':''}" onclick="setFolderExec('Danillo Moura')">Danillo Moura</button></div>`;
+  const head=`<div class="fold-filter"><button class="${!ef?'on':''}" onclick="setFolderExec('')">Todas</button>`+EXECS.map(x=>`<button class="${ef===x?'on':''}" onclick="setFolderExec('${x}')">${x}</button>`).join('')+`</div>`;
   const filtered=ef?active.filter(f=>f.exec===ef):active;
   if(!filtered.length){m.innerHTML=head+'<div class="fold-empty">Nenhuma pasta'+(ef?' de '+ef:' ainda')+'.<br>Selecione leads e clique em <b>Criar pasta</b>.</div>';return;}
   m.innerHTML=head+filtered.slice().reverse().map(f=>`<div class="fold-item">
