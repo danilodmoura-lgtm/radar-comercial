@@ -146,6 +146,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .lbl-ct-on{background:#dcfce7 !important;border-color:#16a34a !important;color:#166534 !important}
 .badge-pot{background:#fef9c3;color:#854d0e}
 .badge-ct{background:#dcfce7;color:#166534}
+.badge-tef{background:#e0e7ff;color:#3730a3}
+.badge-tefusa{background:#e2e8f0;color:#475569}
+.lbl-tef-on{background:#e0e7ff !important;border-color:#4f46e5 !important;color:#3730a3 !important}
 .lbl-mp-on{background:linear-gradient(135deg,#00bcff,#009ee3);color:#fff;border-color:transparent}
 .lbl-hi-on{background:#16a34a;color:#fff;border-color:transparent}
 .lbl-lo-on{background:#64748b;color:#fff;border-color:transparent}
@@ -332,6 +335,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <option value="note">✍️ Com anotação</option>
     <option value="blocked">🚫 Bloqueado</option>
     <option value="contatado">✅ Já contatado</option>
+    <option value="tefpot">🧾 Potencial TEF</option>
+    <option value="tefusa">🧾 Já usa TEF</option>
   </select>
   <button class="btn-export" id="new-btn" onclick="loadNew()" title="Recém-abertos (30 dias), alta aderência, 4 cidades">🆕 Novos</button>
   <button class="btn-export" onclick="openIntel()" title="Padrão de TPV aprendido pelos rótulos">🧠 Padrão</button>
@@ -484,6 +489,7 @@ let state={
   requests: LS('mp2_requests')||[],
   identity: localStorage.getItem('mp2_identity')||null,
   contacted: LS('mp2_contacted')||{},
+  tef: LS('mp2_tef')||{},
   activity: LS('mp2_activity')||[],
   viewingLabel: null,
   map:null, markers:[], mapInit:false,
@@ -502,6 +508,7 @@ function saveSharedLocal(){
   localStorage.setItem('mp2_pins',JSON.stringify(state.pins||{}));
   localStorage.setItem('mp2_requests',JSON.stringify(state.requests||[]));
   localStorage.setItem('mp2_contacted',JSON.stringify(state.contacted||{}));
+  localStorage.setItem('mp2_tef',JSON.stringify(state.tef||{}));
   localStorage.setItem('mp2_activity',JSON.stringify(state.activity||[]));
 }
 function persist(){ saveSharedLocal(); pushShared(); }
@@ -517,7 +524,7 @@ function persistCache(){
 let _pushT=null,_pushing=false;
 function setSync(s){const el=document.getElementById('sync-ind');if(!el)return;el.textContent=s==='ok'?'☁ sincronizado':s==='sync'?'☁ salvando…':'☁ offline';el.style.opacity=s==='off'?.55:1;}
 function mergeNotes(a,b){const out={};const keys=new Set([...Object.keys(a||{}),...Object.keys(b||{})]);for(const k of keys){const seen=new Set();const arr=[];for(const n of [...((a&&a[k])||[]),...((b&&b[k])||[])]){const sig=(n.date||'')+'|'+(n.text||'');if(seen.has(sig))continue;seen.add(sig);arr.push(n);}out[k]=arr;}return out;}
-function sharedSig(o){return JSON.stringify({mpClient:o.mpClient||{},blocked:Array.isArray(o.blocked)?{}:(o.blocked||{}),tpv:o.tpv||{},labelSnap:o.labelSnap||{},notes:o.notes||{},folders:o.folders||[],pins:o.pins||{},requests:o.requests||[],contacted:o.contacted||{},activity:o.activity||[]});}
+function sharedSig(o){return JSON.stringify({mpClient:o.mpClient||{},blocked:Array.isArray(o.blocked)?{}:(o.blocked||{}),tpv:o.tpv||{},labelSnap:o.labelSnap||{},notes:o.notes||{},folders:o.folders||[],pins:o.pins||{},requests:o.requests||[],contacted:o.contacted||{},tef:o.tef||{},activity:o.activity||[]});}
 // Lê a nuvem, funde com o local (união c/ tombstones) e só regrava se algo mudou.
 // Cada cliente reassere o próprio estado a cada ciclo → corridas de escrita se auto-curam.
 async function reconcile(){
@@ -538,10 +545,11 @@ async function reconcile(){
       pins:Object.assign({},remote.pins||{},state.pins||{}),
       requests:mergeReqs(remote.requests||[],state.requests||[]),
       contacted:Object.assign({},remote.contacted||{},state.contacted||{}),
+      tef:Object.assign({},remote.tef||{},state.tef||{}),
       activity:mergeActivity(remote.activity||[],state.activity||[]),
       _updated:Date.now()
     };
-    state.mpClient=merged.mpClient;state.blocked=merged.blocked;state.tpv=merged.tpv;state.labelSnap=merged.labelSnap;state.notes=merged.notes;state.folders=merged.folders;state.pins=merged.pins;state.requests=merged.requests;state.contacted=merged.contacted;state.activity=merged.activity;
+    state.mpClient=merged.mpClient;state.blocked=merged.blocked;state.tpv=merged.tpv;state.labelSnap=merged.labelSnap;state.notes=merged.notes;state.folders=merged.folders;state.pins=merged.pins;state.requests=merged.requests;state.contacted=merged.contacted;state.tef=merged.tef;state.activity=merged.activity;
     saveSharedLocal();
     renderFolders();
     updateAdminUI();
@@ -749,6 +757,8 @@ function getVisible(){
     if(status==='active' && blk) return false;
     if(status==='blocked' && !blk) return false;
     if(status==='contatado' && !(state.contacted&&state.contacted[l.cnpj])) return false;
+    if(status==='tefpot' && !(((SEG_FIT[l.cnae]||2)>=2)&&!state.tef[l.cnpj])) return false;
+    if(status==='tefusa' && !state.tef[l.cnpj]) return false;
     return true;
   });
   arr=[...arr].sort((a,b)=>scoreLead(b).score-scoreLead(a).score); // sempre por melhor fit
@@ -809,6 +819,8 @@ function cardHTML(l){
   const isMP=!!state.mpClient[l.cnpj];
   const tv=state.tpv[l.cnpj];
   const ct=!!state.contacted[l.cnpj];
+  const usaTef=!!state.tef[l.cnpj];
+  const tefPot=((SEG_FIT[l.cnae]||2)>=2)&&!usaTef;
   const potential = !!(d&&!d.error&&(((d.capital||0)>=200000)||/PEQUENO|MÉDI|MEDI|DEMAIS|GRANDE/.test((d.porte||'').toUpperCase())));
   const scoreBadge = sc.tier>=3?`<span class="badge badge-hot" title="Alta aderência · score ${sc.score}">🔥 ${sc.score}</span>` : sc.tier>=2?`<span class="badge badge-star" title="Boa aderência · score ${sc.score}">⭐ ${sc.score}</span>` : '';
   return `<div class="lead-card ${blk?'blocked':''} ${sc.tier>=3?'hot':''} ${isMP?'ismp':''} ${state.selected.has(l.cnpj)?'sel':''}" style="--seg:${s.color}" onclick="openLead('${l.cnpj}')" id="card-${l.cnpj}">
@@ -821,6 +833,7 @@ function cardHTML(l){
         ${isMP?'<span class="badge badge-mp">MP cliente</span>':''}
         ${tv==='high'?'<span class="badge badge-hi">+300K</span>':tv==='low'?'<span class="badge badge-lo">−300K</span>':''}
         ${potential?'<span class="badge badge-pot" title="Alto potencial de faturamento/TPV">💰 potencial</span>':''}
+        ${usaTef?'<span class="badge badge-tefusa" title="Já usa pagamento integrado (TEF)">🧾 usa TEF</span>':(tefPot?'<span class="badge badge-tef" title="Será obrigada ao pagamento integrado (TEF) e é do perfil MP de parcelamento">🧾 potencial TEF</span>':'')}
         ${ct?'<span class="badge badge-ct">✅ contatado</span>':''}
         ${nt?'<span class="badge badge-note">📝'+nt+'</span>':''}
         ${blk?'<span class="badge badge-blk">BLOQ</span>':''}
@@ -838,6 +851,7 @@ function cardHTML(l){
       <button class="lbl-btn ${tv==='low'?'lbl-lo-on':''}" onclick="setTpv('${l.cnpj}','low')" title="Confirmado: TPV abaixo de R$300 mil">－300K</button>
       ${blk?`<button class="lbl-btn lbl-blk-on" onclick="unblock('${l.cnpj}')" title="Reativar (está bloqueado)">🚫</button>`:`<button class="lbl-btn" onclick="block('${l.cnpj}')" title="Bloquear — não faz sentido estar aqui">🚫</button>`}
       <button class="lbl-btn ${ct?'lbl-ct-on':''}" onclick="toggleContacted('${l.cnpj}')" title="Já contatado — sai da busca pra não repetir">✅</button>
+      <button class="lbl-btn ${usaTef?'lbl-tef-on':''}" onclick="toggleTef('${l.cnpj}')" title="Já usa TEF? Marque pra tirar do potencial">🧾</button>
     </div>
   </div>`;
 }
@@ -932,6 +946,7 @@ function delNote(c,i){state.notes[c].splice(i,1);persist();openLead(c);renderRes
 function toggleMP(c){state.mpClient[c]=!state.mpClient[c];const now=!!state.mpClient[c];snapOf(c);if(now)logAct('mp',c);persist();if(state.openCnpj===c)openLead(c);renderResults();toast(now?'✓ Marcado como cliente Mercado Pago':'Desmarcado como cliente MP')}
 function setTpv(c,val){state.tpv[c]=(state.tpv[c]===val)?'':val;const now=state.tpv[c];snapOf(c);if(now==='high')logAct('tpvhigh',c);else if(now==='low')logAct('tpvlow',c);persist();if(state.openCnpj===c)openLead(c);renderResults();toast(now==='high'?'✅ Marcado: TPV +300K':now==='low'?'▽ Marcado: TPV −300K':'Rótulo de TPV removido')}
 function toggleContacted(c){state.contacted[c]=!state.contacted[c];const now=!!state.contacted[c];snapOf(c);if(now)logAct('contatado',c);persist();if(state.openCnpj===c)openLead(c);renderResults();toast(now?'✅ Contatado — sai da busca pra não repetir':'Contato desmarcado')}
+function toggleTef(c){state.tef[c]=!state.tef[c];const now=!!state.tef[c];snapOf(c);if(now)logAct('tef',c);persist();if(state.openCnpj===c)openLead(c);renderResults();toast(now?'🧾 Marcado: já usa TEF (saiu do potencial)':'Desmarcado — voltou ao potencial TEF')}
 function quickFilter(v){const el=document.getElementById('f-status');if(el){el.value=v;renderResults()}}
 // ---- Novos leads (recém-abertos, alta aderência × 4 cidades) ----
 const NEW_CITIES=['GOIANIA','APARECIDA DE GOIANIA','TRINDADE','SENADOR CANEDO','RIO VERDE','ANAPOLIS'];
@@ -988,6 +1003,7 @@ function openIntel(){
   const todays=(state.activity||[]).filter(e=>new Date(e.at).toDateString()===today);
   const cnt=t=>todays.filter(e=>e.t===t).length;
   const cts=Object.keys(state.contacted||{}).filter(c=>state.contacted[c]).length;
+  const tefUsa=Object.keys(state.tef||{}).filter(c=>state.tef[c]).length;
   const body=`
     <div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:12px;margin-bottom:14px">
       <div class="ilabel">📅 Resumo de hoje — inputs do time</div>
@@ -999,7 +1015,9 @@ function openIntel(){
       <div class="intel-kpi" style="background:#e0f2fe;cursor:pointer" onclick="openLabelView('mp')" title="Ver esses leads"><b>${mps.length}</b><span>Clientes MP ›</span></div>
       <div class="intel-kpi" style="background:#f1f5f9;cursor:pointer" onclick="openLabelView('blocked')" title="Ver esses leads"><b>${blks.length}</b><span>Bloqueados ›</span></div>
       <div class="intel-kpi" style="background:#dcfce7;cursor:pointer" onclick="openLabelView('contatado')" title="Ver esses leads"><b>${cts}</b><span>Contatados ›</span></div>
+      <div class="intel-kpi" style="background:#e0e7ff;cursor:pointer" onclick="openLabelView('tefusa')" title="Marcados como já usam TEF"><b>${tefUsa}</b><span>Usa TEF ›</span></div>
     </div>
+    <div style="font-size:11.5px;color:#475569;background:#eef2ff;border-radius:8px;padding:8px 10px;margin:-6px 0 14px">🧾 <b>Potencial TEF:</b> lei de Goiás vai obrigar o pagamento integrado por faturamento. Use o filtro <b>"Potencial TEF"</b> na busca pra ver os leads do perfil MP que serão obrigados (e ainda não usam).</div>
     <div class="ilabel">💚 Perfil dos +300K &nbsp; vs &nbsp; 🔻 −300K</div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin:8px 0 14px">${profile(H,'#f0fdf4')}${profile(L,'#fef2f2')}</div>
     <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px;font-size:12.5px;line-height:1.6">🧠 <b>Padrão que o RADAR aprendeu:</b><br>${learned}</div>
@@ -1068,13 +1086,14 @@ function openFolder(id){
   fetchDetailsFor(state.results.filter(l=>!l.detail));
   toggleFoldersMenu(false);
 }
-const LABEL_META={tpvhigh:{t:'💚 Leads +300K'},tpvlow:{t:'🔻 Leads −300K'},mp:{t:'🤝 Clientes Mercado Pago'},blocked:{t:'🚫 Leads bloqueados'},contatado:{t:'✅ Já contatados'}};
+const LABEL_META={tpvhigh:{t:'💚 Leads +300K'},tpvlow:{t:'🔻 Leads −300K'},mp:{t:'🤝 Clientes Mercado Pago'},blocked:{t:'🚫 Leads bloqueados'},contatado:{t:'✅ Já contatados'},tefusa:{t:'🧾 Já usam TEF'}};
 function labelCnpjs(kind){
   if(kind==='tpvhigh')return Object.keys(state.tpv).filter(c=>state.tpv[c]==='high');
   if(kind==='tpvlow')return Object.keys(state.tpv).filter(c=>state.tpv[c]==='low');
   if(kind==='mp')return Object.keys(state.mpClient).filter(c=>state.mpClient[c]);
   if(kind==='blocked')return Object.keys(state.blocked).filter(c=>state.blocked[c]);
   if(kind==='contatado')return Object.keys(state.contacted||{}).filter(c=>state.contacted[c]);
+  if(kind==='tefusa')return Object.keys(state.tef||{}).filter(c=>state.tef[c]);
   return [];
 }
 function openLabelView(kind){
