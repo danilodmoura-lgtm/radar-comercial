@@ -149,6 +149,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .badge-tef{background:#e0e7ff;color:#3730a3}
 .badge-tefusa{background:#e2e8f0;color:#475569}
 .lbl-tef-on{background:#e0e7ff !important;border-color:#4f46e5 !important;color:#3730a3 !important}
+.badge-tpvest{background:#ecfeff;color:#0e7490}
+.badge-folder{background:#fef3c7;color:#92400e}
+#top-btn.on{background:#fde68a;color:#7c2d12}
 .lbl-mp-on{background:linear-gradient(135deg,#00bcff,#009ee3);color:#fff;border-color:transparent}
 .lbl-hi-on{background:#16a34a;color:#fff;border-color:transparent}
 .lbl-lo-on{background:#64748b;color:#fff;border-color:transparent}
@@ -340,12 +343,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   </select>
   <button class="btn-export" id="new-btn" onclick="loadNew()" title="Recém-abertos (30 dias), alta aderência, 4 cidades">🆕 Novos</button>
   <button class="btn-export" onclick="openIntel()" title="Padrão de TPV aprendido pelos rótulos">🧠 Padrão</button>
+  <button class="btn-export" id="top-btn" onclick="topDoDia()" title="Os 15 maiores potenciais (fit × TPV estimado) dos resultados">🏆 Top do dia</button>
   <div class="folders-wrap">
     <button class="btn-export" id="folders-btn" onclick="toggleFoldersMenu()">👥 Executivos (0)</button>
     <div class="folders-menu" id="folders-menu"></div>
   </div>
   <button class="btn-export" onclick="exportCSV('prosp')">⬇ Prospecção</button>
   <button class="btn-export" onclick="exportCSV('crm')">⬇ CRM</button>
+  <button class="btn-export" onclick="exportTEF()" title="Exporta os Potencial TEF dos resultados (CSV pronto pro SDR)">⬇ TEF</button>
   <div class="view-toggle">
     <button class="view-btn active" id="vb-list" onclick="setView('list')">≡ Lista</button>
     <button class="view-btn" id="vb-map" onclick="setView('map')">◉ Mapa</button>
@@ -761,7 +766,8 @@ function getVisible(){
     if(status==='tefusa' && !state.tef[l.cnpj]) return false;
     return true;
   });
-  arr=[...arr].sort((a,b)=>scoreLead(b).score-scoreLead(a).score); // sempre por melhor fit
+  if(state.topOnly){ arr=[...arr].sort((a,b)=>potScore(b)-potScore(a)).slice(0,15); }
+  else arr=[...arr].sort((a,b)=>scoreLead(b).score-scoreLead(a).score); // sempre por melhor fit
   return arr;
 }
 
@@ -822,6 +828,8 @@ function cardHTML(l){
   const usaTef=!!state.tef[l.cnpj];
   const tefPot=((SEG_FIT[l.cnae]||2)>=2)&&!usaTef;
   const potential = !!(d&&!d.error&&(((d.capital||0)>=200000)||/PEQUENO|MÉDI|MEDI|DEMAIS|GRANDE/.test((d.porte||'').toUpperCase())));
+  const et=(d&&!d.error)?estTPV(l):0;
+  const inF=leadFolders(l.cnpj);
   const scoreBadge = sc.tier>=3?`<span class="badge badge-hot" title="Alta aderência · score ${sc.score}">🔥 ${sc.score}</span>` : sc.tier>=2?`<span class="badge badge-star" title="Boa aderência · score ${sc.score}">⭐ ${sc.score}</span>` : '';
   return `<div class="lead-card ${blk?'blocked':''} ${sc.tier>=3?'hot':''} ${isMP?'ismp':''} ${state.selected.has(l.cnpj)?'sel':''}" style="--seg:${s.color}" onclick="openLead('${l.cnpj}')" id="card-${l.cnpj}">
     <div class="lead-top">
@@ -834,6 +842,8 @@ function cardHTML(l){
         ${tv==='high'?'<span class="badge badge-hi">+300K</span>':tv==='low'?'<span class="badge badge-lo">−300K</span>':''}
         ${potential?'<span class="badge badge-pot" title="Alto potencial de faturamento/TPV">💰 potencial</span>':''}
         ${usaTef?'<span class="badge badge-tefusa" title="Já usa pagamento integrado (TEF)">🧾 usa TEF</span>':(tefPot?'<span class="badge badge-tef" title="Será obrigada ao pagamento integrado (TEF) e é do perfil MP de parcelamento">🧾 potencial TEF</span>':'')}
+        ${et?'<span class="badge badge-tpvest" title="TPV mensal estimado (segmento × porte) — indicativo">💳 '+fmtK(et)+'/mês</span>':''}
+        ${inF.length?'<span class="badge badge-folder" title="Já está na pasta: '+inF.map(x=>x.name+' ('+x.exec+')').join(', ')+'">📁 '+inF[0].exec+(inF.length>1?' +'+(inF.length-1):'')+'</span>':''}
         ${ct?'<span class="badge badge-ct">✅ contatado</span>':''}
         ${nt?'<span class="badge badge-note">📝'+nt+'</span>':''}
         ${blk?'<span class="badge badge-blk">BLOQ</span>':''}
@@ -844,6 +854,7 @@ function cardHTML(l){
     <div class="lead-actions" onclick="event.stopPropagation()">
       <button class="act-btn act-wa" onclick="openWA('${wa}')">💬 Zap</button>
       <button class="act-btn act-map" onclick="openGMaps('${l.cnpj}')">🗺️ Mapa</button>
+      <button class="act-btn act-insta" onclick="openInsta('${l.cnpj}')">📷 Insta</button>
     </div>
     <div class="lead-labels" onclick="event.stopPropagation()">
       <button class="lbl-btn ${isMP?'lbl-mp-on':''}" onclick="toggleMP('${l.cnpj}')" title="É cliente Mercado Pago">${MP_MARK} MP</button>
@@ -878,6 +889,7 @@ function openLead(cnpj){
   let b=`<div class="p-actions">
     <button class="pa-btn pa-wa" onclick="openWA('${wa}')"><span class="ic">💬</span>WhatsApp</button>
     <button class="pa-btn pa-map" onclick="openGMaps('${cnpj}')"><span class="ic">🗺️</span>Mapa</button>
+    <button class="pa-btn" onclick="openInsta('${cnpj}')"><span class="ic">📷</span>Instagram</button>
     ${blk?`<button class="pa-btn pa-blk" style="background:#dcfce7;color:#166534" onclick="unblock('${cnpj}')"><span class="ic">↩</span>Reativar</button>`:`<button class="pa-btn pa-blk" onclick="block('${cnpj}')"><span class="ic">🚫</span>Bloquear</button>`}
   </div>`;
 
@@ -892,6 +904,7 @@ function openLead(cnpj){
         <span style="font-size:20px;font-weight:900;color:var(--mp-dark)">${sc.score}<span style="font-size:11px;color:var(--text2)">/100</span></span>
       </div>
       ${sc.reasons.length?`<ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text2);line-height:1.6">${sc.reasons.map(r=>'<li>'+r+'</li>').join('')}</ul>`:''}
+      <div style="font-size:12px;margin-top:6px;color:var(--text)">💳 <b>TPV mensal estimado:</b> ${fmtK(estTPV(l))} <span style="color:#94a3b8">(segmento × porte — indicativo)</span></div>
       <div style="font-size:10.5px;color:#94a3b8;margin-top:6px">Estimativa por segmento, porte e capital social — indicativo para maquininha presencial com parcelamento/antecipação.</div>
     </div></div>`;
 
@@ -1039,6 +1052,7 @@ function renderSelBar(){
   bar.innerHTML=`<span class="selbar-count">✓ ${n} lead${n>1?'s':''} selecionado${n>1?'s':''}</span>
     <button class="selbar-primary" onclick="createFolder()">📁 Nova pasta</button>
     ${folderSel}
+    <button onclick="roteiro()">🧭 Roteiro</button>
     <button onclick="exportCSV('crm')">⬇ CRM</button>
     <button onclick="exportCSV('prosp')">⬇ Prospecção</button>
     <button onclick="selectAllVisible()">Todos</button>
@@ -1049,11 +1063,12 @@ function addSelToFolder(id){
   const f=state.folders.find(x=>x.id===id&&!x.deleted); if(!f)return;
   if(!f.leads)f.leads=[];
   const existing=new Set(f.leads.map(l=>l.cnpj));
+  const dupOther=[...state.selected].filter(c=>leadFolders(c).some(ff=>ff.name!==f.name));
   let added=0;
   [...state.selected].forEach(c=>{ if(existing.has(c))return; const l=state.results.find(x=>x.cnpj===c); if(!l)return; f.leads.push(leadSnapshot(l)); added++; });
   f._updated=Date.now();
   persist(); state.selected.clear(); renderResults(); renderFolders();
-  toast(added?(added+' lead(s) → "'+f.name+'"'):'Esses leads já estavam na pasta');
+  toast(added?(added+' lead(s) → "'+f.name+'"'+(dupOther.length?' · ⚠ '+dupOther.length+' já em pasta de outro exec':'')):'Esses leads já estavam na pasta');
 }
 // ---- Pastas ----
 function leadSnapshot(l){const d=l.detail&&!l.detail.error?l.detail:null;return {cnpj:l.cnpj,nome:l.nome,razao:l.razao,cnae:l.cnae,det:d?{endereco:d.endereco,bairro:d.bairro,municipio:d.municipio,uf:d.uf,cep:d.cep,tel1:d.tel1,tel2:d.tel2,email:d.email,capital:d.capital,abertura:d.abertura,porte:d.porte,natureza:d.natureza,cnaeDesc:d.cnaeDesc,socios:d.socios}:null};}
@@ -1073,6 +1088,8 @@ function confirmCreateFolder(){
   const exec=document.getElementById('cf-exec').value;
   const faixa=document.getElementById('cf-faixa').value;
   const leads=[...state.selected].map(c=>state.results.find(l=>l.cnpj===c)).filter(Boolean).map(leadSnapshot);
+  const dupOther=[...state.selected].filter(c=>leadFolders(c).length);
+  if(dupOther.length && !confirm(dupOther.length+' lead(s) selecionado(s) já estão em outra pasta. Criar assim mesmo?'))return;
   state.folders.push({id:'f'+Date.now()+Math.random().toString(36).slice(2,6),name,exec,faixa,created:new Date().toLocaleString('pt-BR'),_updated:Date.now(),leads});
   logAct('folder','');
   persist();state.selected.clear();closeCreateFolder();renderResults();renderFolders();toast('Pasta "'+name+'" → '+exec+' ('+leads.length+' leads)');
@@ -1129,7 +1146,58 @@ function renderFolders(){
 function exportFolder(id){const f=state.folders.find(x=>x.id===id);if(!f)return;const arr=(f.leads||[]).map(s=>({cnpj:s.cnpj,nome:s.nome,razao:s.razao,cnae:s.cnae,detail:s.det||null}));exportCSV('crm',arr,f.name.replace(/[^a-z0-9]+/gi,'_').toLowerCase(),f.exec);}
 function copy(t){navigator.clipboard.writeText(t).then(()=>toast('Copiado')).catch(()=>{})}
 function openWA(tel){if(!tel){toast('Sem WhatsApp cadastrado');return}window.open('https://wa.me/55'+tel.replace(/\D/g,''),'_blank')}
-function openGMaps(cnpj){const l=state.results.find(x=>x.cnpj===cnpj);const d=l&&l.detail;const q=d&&!d.error?[d.endereco,d.bairro,d.municipio,d.uf].filter(Boolean).join(', '):l.nome+' Goiânia';window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(q),'_blank')}
+function openGMaps(cnpj){const l=state.results.find(x=>x.cnpj===cnpj);const d=l&&l.detail;const q=d&&!d.error?[l.nome,d.endereco,d.bairro,d.municipio,d.uf].filter(Boolean).join(', '):l.nome+' Goiânia';window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(q),'_blank')}
+function openInsta(cnpj){const l=state.results.find(x=>x.cnpj===cnpj)||{};const cidade=(l.detail&&l.detail.municipio)||'Goiânia';window.open('https://www.google.com/search?q='+encodeURIComponent((l.nome||'')+' '+cidade+' instagram'),'_blank')}
+
+// ---- Estimativa de TPV mensal (potencial) por segmento × porte ----
+const TPV_BASE={'4752100':120000,'4751201':100000,'4783101':150000,'4774100':80000,'4754701':130000,'4511101':400000,'4512901':300000,'4541206':160000,'4781400':70000,'4782201':60000,'4772500':50000,'8630504':90000,'9602501':45000,'4771701':200000,'9313100':40000,'4744099':140000,'4711302':300000,'4789004':40000,'5611201':80000,'4530703':90000,'4520001':70000,'4530705':90000};
+function porteMult(p){p=(p||'').toUpperCase();if(p.includes('PEQUENO'))return 2.5;if(p.includes('DEMAIS')||p.includes('GRANDE')||p.includes('MEDI')||p.includes('MÉDI'))return 5;if(p.includes('MICRO'))return 1;return 1.5;}
+function estTPV(l){const base=TPV_BASE[l.cnae]||80000;const d=l.detail;let v=base*porteMult(d&&!d.error?d.porte:'');const tv=state.tpv[l.cnpj];if(tv==='high')v=Math.max(v,300000);else if(tv==='low')v=Math.min(v,60000);return Math.round(v);}
+function fmtK(v){if(v>=1000000)return 'R$ '+(v/1000000).toFixed(1).replace('.',',')+'mi';return 'R$ '+Math.round(v/1000)+'k';}
+function potScore(l){return scoreLead(l).score*1000+Math.min(estTPV(l),3000000)/1000;}
+
+// ---- Dedupe: em quais pastas (e de quem) o lead já está ----
+function leadFolders(cnpj){const out=[];(state.folders||[]).forEach(f=>{if(f.deleted)return;if((f.leads||[]).some(x=>x.cnpj===cnpj))out.push({name:f.name,exec:f.exec||'—'});});return out;}
+
+// ---- Top do dia (melhores potenciais dos resultados atuais) ----
+function topDoDia(){
+  if(!state.results.length){toast('Faça uma busca primeiro');return;}
+  state.topOnly=!state.topOnly;
+  const btn=document.getElementById('top-btn'); if(btn)btn.classList.toggle('on',state.topOnly);
+  renderResults();
+  if(state.topOnly){window.scrollTo({top:0,behavior:'smooth'});toast('🏆 Top do dia — 15 maiores potenciais (fit × TPV estimado)');}
+  else toast('Top do dia desligado');
+}
+
+// ---- Roteiro do dia (rota otimizada dos selecionados) ----
+async function roteiro(){
+  let sel=[...state.selected].map(c=>state.results.find(l=>l.cnpj===c)).filter(Boolean);
+  if(sel.length<2){toast('Selecione ao menos 2 leads pra montar o roteiro');return;}
+  if(sel.length>10){toast('Máx. 10 paradas — usando as 10 primeiras');sel=sel.slice(0,10);}
+  loader(true);
+  for(const l of sel){ if(!state.geoCache[l.cnpj]&&l.detail&&!l.detail.error&&l.detail.endereco){ try{const q=[l.detail.endereco,l.detail.bairro,l.detail.municipio,l.detail.uf,'Brasil'].filter(Boolean).join(', ');const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(q));const j=await r.json();if(j&&j[0])state.geoCache[l.cnpj]={lat:+j[0].lat,lng:+j[0].lon};}catch(e){} await new Promise(r=>setTimeout(r,900)); } }
+  persistCache();
+  const wg=sel.filter(l=>state.geoCache[l.cnpj]), wo=sel.filter(l=>!state.geoCache[l.cnpj]);
+  let ordered=[];
+  if(wg.length){const pool=[...wg];let cur=pool.shift();ordered.push(cur);while(pool.length){const cg=state.geoCache[cur.cnpj];let bi=0,bd=Infinity;pool.forEach((p,i)=>{const g=state.geoCache[p.cnpj];const dd=(g.lat-cg.lat)**2+(g.lng-cg.lng)**2;if(dd<bd){bd=dd;bi=i;}});cur=pool.splice(bi,1)[0];ordered.push(cur);}}
+  ordered=ordered.concat(wo);
+  const pts=ordered.map(l=>{const d=l.detail||{};const g=state.geoCache[l.cnpj];return g?(g.lat+','+g.lng):encodeURIComponent([l.nome,d.endereco,d.bairro,d.municipio||'Goiânia','GO'].filter(Boolean).join(' '));});
+  loader(false);
+  window.open('https://www.google.com/maps/dir/'+pts.join('/'),'_blank');
+  toast('🧭 Roteiro aberto no Maps ('+ordered.length+' paradas, ordem mais curta)');
+}
+
+// ---- Exportar Potencial TEF (CSV pronto pro SDR) ----
+function exportTEF(){
+  const base=getVisible().filter(l=>((SEG_FIT[l.cnae]||2)>=2)&&!state.tef[l.cnpj]&&!isBlk(l.cnpj));
+  if(!base.length){toast('Nenhum lead Potencial TEF nos resultados atuais');return;}
+  const arr=[...base].sort((a,b)=>potScore(b)-potScore(a));
+  const head=['#','Prioridade','Segmento','Empresa','Razao Social','CNPJ','Capital','Porte','Aberta em','Endereco','Bairro','Cidade','CEP','Telefone 1','Telefone 2','Responsavel','TPV est/mes','Google Maps','Instagram (busca)'];
+  const rows=arr.map((l,i)=>{const d=l.detail||{};const nome=l.nome||'';const end=d.endereco||'';const cidade=d.municipio||'GOIANIA';const sc=scoreLead(l).score;const pr=sc>=68?'Alta':sc>=54?'Média':'Padrão';const maps='https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(nome+' '+end+' '+(d.bairro||'')+' '+cidade+' GO');const ig='https://www.google.com/search?q='+encodeURIComponent(nome+' '+cidade+' instagram');return [i+1,pr,segOf(l).seg,nome,l.razao||'',fmtCnpj(l.cnpj),fmtMoney(d.capital),d.porte||'',d.abertura?fmtDate(d.abertura):'',end,d.bairro||'',cidade,d.cep||'',d.tel1||'',d.tel2||'',(d.socios&&d.socios[0])||'',fmtK(estTPV(l)),maps,ig];});
+  const csv='﻿'+[head,...rows].map(r=>r.map(csvCell).join(';')).join('\r\n');
+  download('leads_potencial_TEF_'+new Date().toISOString().slice(0,10)+'.csv',csv);
+  toast('🧾 '+arr.length+' leads Potencial TEF exportados');
+}
 
 // ============================================================
 //  VIEW / MAP
